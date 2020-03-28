@@ -11,6 +11,8 @@
 
 class SameSiteCookieSetter
 {
+    static private $_is_browser_compatible = array();
+
     /*
      * sets cookie
      * setcookie ( string $name [, string $value = "" [, array $options = [] ]] ) : bool
@@ -20,7 +22,6 @@ class SameSiteCookieSetter
      */
     public static function setcookie($name, $value="", $options = array())
     {
-        $result = true;
         $same_site = isset($options['samesite']) ? $options['samesite'] : '';
         $is_secure = isset($options['secure']) ? boolval($options['secure']) : false;
         $user_agent = isset($_SERVER['HTTP_USER_AGENT']) ? $_SERVER['HTTP_USER_AGENT'] : '';
@@ -38,29 +39,37 @@ class SameSiteCookieSetter
 
             if (self::isBrowserSameSiteCompatible($user_agent)) {
                 $new_headers = array();
-
-                $headers_list = headers_list();
+                $headers_list = array_reverse(headers_list());
+                $is_modified = false;
                 foreach ($headers_list as $_header) {
-                    if (strpos($_header, 'Set-Cookie: ' . $name) === 0) {
+                    if (!$is_modified && strpos($_header, 'Set-Cookie: ' . $name) === 0) {
                         $additional_labels = array();
 
                         $is_secure = ($same_site == 'None' ? true : $is_secure);
 
-                        if ($is_httponly){
-                            $additional_labels[] = '; HttpOnly';
+                        $new_label = '; HttpOnly';
+                        if ($is_httponly && strpos($_header,$new_label) === false){
+                            $additional_labels[] = $new_label;
                         }
-                        if ($is_secure){
-                            $additional_labels[] = '; Secure';
+
+                        $new_label = '; Secure';
+                        if ($is_secure && strpos($_header,$new_label) === false){
+                            $additional_labels[] = $new_label;
                         }
-                        $additional_labels[] = '; SameSite=' . $same_site;
+
+                        $new_label = '; SameSite=' . $same_site;
+                        if (strpos($_header,$new_label) === false){
+                            $additional_labels[] = $new_label;
+                        }
 
                         $_header = $_header . implode('',$additional_labels);
+                        $is_modified = true;
                     }
-
                     $new_headers[] = $_header;
                 }
 
                 header_remove();
+                $new_headers = array_reverse($new_headers);
                 foreach ($new_headers as $_header){
                     header($_header,false);
                 }
@@ -80,13 +89,30 @@ class SameSiteCookieSetter
         return $result;
     }
 
+    private static function _setIsBrowserCompatible($user_agent_key,$value){
+        self::$_is_browser_compatible[$user_agent_key] = $value;
+    }
+    private static function _getIsBrowserCompatible($user_agent_key){
+        if (isset(self::$_is_browser_compatible[$user_agent_key])){
+            return self::$_is_browser_compatible[$user_agent_key];
+        }
+        return null;
+    }
+
     public static function isBrowserSameSiteCompatible($user_agent)
     {
+        $user_agent_key = md5($user_agent);
+        $self_check = self::_getIsBrowserCompatible($user_agent_key);
+        if ($self_check !== null){
+            return $self_check;
+        }
+
         // check Chrome
         $regex = '#(CriOS|Chrome)/([0-9]*)#';
         if (preg_match($regex, $user_agent, $matches) == true) {
             $version = $matches[2];
             if ($version < 67) {
+                self::_setIsBrowserCompatible($user_agent_key,false);
                 return false;
             }
         }
@@ -96,6 +122,7 @@ class SameSiteCookieSetter
         if (preg_match($regex, $user_agent, $matches) == true) {
             $version = $matches[1];
             if ($version < 13) {
+                self::_setIsBrowserCompatible($user_agent_key,false);
                 return false;
             }
         }
@@ -109,11 +136,13 @@ class SameSiteCookieSetter
                 // check Safari
                 $regex = '#Version\/.* Safari\/#';
                 if (preg_match($regex, $user_agent) == true) {
+                    self::_setIsBrowserCompatible($user_agent_key,false);
                     return false;
                 }
                 // check Embedded Browser
                 $regex = '#AppleWebKit\/[\.\d]+ \(KHTML, like Gecko\)#';
                 if (preg_match($regex, $user_agent) == true) {
+                    self::_setIsBrowserCompatible($user_agent_key,false);
                     return false;
                 }
             }
@@ -126,10 +155,12 @@ class SameSiteCookieSetter
             $version_minor = $matches[2];
             $version_build = $matches[3];
             if ($version_major == 12 && $version_minor == 13 && $version_build == 2) {
+                self::_setIsBrowserCompatible($user_agent_key,false);
                 return false;
             }
         }
 
+        self::_setIsBrowserCompatible($user_agent_key,true);
         return true;
     }
 }
