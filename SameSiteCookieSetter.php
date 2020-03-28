@@ -1,8 +1,8 @@
 <?php
 /**
  * @author Ovunc Tukenmez <ovunct@live.com>
- * @version 1.0.0
- * Date: 27.03.2020
+ * @version 1.1.0
+ * Date: 28.03.2020
  *
  * This class adds samesite parameter for cookies created by session_start function.
  * The browser agent is also checked against incompatible list of browsers.
@@ -37,6 +37,8 @@ class SameSiteCookieSetter
             $result = setcookie($name,$value,$expires,$path,$domain);
 
             if (self::isBrowserSameSiteCompatible($user_agent)) {
+                $new_headers = array();
+
                 $headers_list = headers_list();
                 foreach ($headers_list as $_header) {
                     if (strpos($_header, 'Set-Cookie: ' . $name) === 0) {
@@ -52,9 +54,15 @@ class SameSiteCookieSetter
                         }
                         $additional_labels[] = '; SameSite=' . $same_site;
 
-                        header($_header . implode('',$additional_labels));
-                        break;
+                        $_header = $_header . implode('',$additional_labels);
                     }
+
+                    $new_headers[] = $_header;
+                }
+
+                header_remove();
+                foreach ($new_headers as $_header){
+                    header($_header,false);
                 }
             }
         } else {
